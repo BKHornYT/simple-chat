@@ -3,3 +3,50 @@ h1  {
     color: aqua;
 
 }
+
+
+
+#start-chat-btn {
+
+    position: fixed;
+
+    bottom: 20px;
+
+    right: 20px;
+
+    padding: 10px 20px;
+
+    background-color: #007bff;
+
+    color: white;
+
+    border: none;
+
+    border-radius: 5px;
+
+    cursor: pointer;
+
+}
+
+
+#start-chat-btn:hover {
+
+    background-color: #0056b3;
+
+}
+
+#chat-container {
+
+    display: flex;
+
+    flex-direction: column;
+
+    height: 80vh;
+
+    border: 1px solid #ccc;
+
+    padding: 10px;
+
+    overflow-y: scroll;
+
+}
