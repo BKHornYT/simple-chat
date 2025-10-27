@@ -3,17 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chat's</title>
+    <title>Simple Chat</title>
     <link rel="stylesheet" href="styles2.css">
 </head>
 <body>
-    <h1>Velkommen til chatten!</h1>
-    <div id="chat-container">
-        <div id="messages"></div>
-        <input type="text" id="user-input" placeholder="Skriv en melding...">
-        <button id="send-btn">Send</button>
-    </div>
-</body>
+    <main class="chat">
+        <header class="chat__header">
+            <a class="chat__back" href="index.html" aria-label="Tilbake til forsiden">← Tilbake</a>
+            <h1 class="chat__title">Chat med SimpleBot</h1>
+        </header>
+        <section id="messages" class="chat__messages" aria-live="polite" aria-label="Samtaleloggen"></section>
+        <form id="chat-form" class="chat__form" autocomplete="off">
+            <label class="sr-only" for="user-input">Skriv meldingen din</label>
+            <input id="user-input" name="message" type="text" placeholder="Skriv en melding..." required>
+            <button id="send-btn" type="submit">Send</button>
+        </form>
+    </main>
     <script src="chat.js"></script>
 </body>
 </html>
