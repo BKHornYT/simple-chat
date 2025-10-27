@@ -12,12 +12,19 @@ const defaultResponses = [
 
 const intentResponses = [
     { keywords: ['hei', 'hallo', 'god dag'], response: 'Hei! Hyggelig å se deg her 👋' },
-    { keywords: ['hjelp', 'hvordan', 'funker'], response: 'Jeg er en enkel demobot. Bare skriv en melding, så svarer jeg med noe hyggelig.' },
+    {
+        keywords: ['hjelp', 'hvordan', 'funker'],
+        response: 'Jeg er en enkel demobot. Bare skriv en melding, så svarer jeg med noe hyggelig.'
+    },
     { keywords: ['takk', 'thanks'], response: 'Bare hyggelig! 😊' },
     { keywords: ['hadet', 'ha det', 'snakkes'], response: 'Snakkes senere! 👋' }
 ];
 
 function addMessage(author, text) {
+    if (!messagesContainer) {
+        return;
+    }
+
     const message = document.createElement('div');
     message.className = `message message--${author}`;
     message.textContent = text;
@@ -42,6 +49,10 @@ function getBotResponse(message) {
 function handleSubmit(event) {
     event.preventDefault();
 
+    if (!userInput) {
+        return;
+    }
+
     const message = userInput.value.trim();
     if (!message) {
         return;
@@ -58,4 +69,8 @@ function handleSubmit(event) {
 
 if (chatForm) {
     chatForm.addEventListener('submit', handleSubmit);
+
+    if (userInput) {
+        userInput.focus();
+    }
 }
