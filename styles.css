@@ -1,6 +1,6 @@
 
 
-
+/* Start chat knapp */
 
 #start-chat-btn {
   background: linear-gradient(to right, #c04eaf, #3d4c96, #0056b3);
@@ -40,11 +40,11 @@
 
 
 
-
+/* Bakgrunn for hele siden */
 body {
 
 
-    background: linear-gradient(to right, #76246a, #121e57, #0056b3);
+    background: linear-gradient(to right, #762472, #121e57, #0056b3);
 
     display: flex;
     justify-content: center;
@@ -52,5 +52,26 @@ body {
 
     ;
 
+
+}
+
+/* CSS for overskriften */
+#overskrift {
+  color: white; 
+  font-family:'Franklin Gothic Medium', 'Arial Narrow', Arial, sans-serif;
+  font-size: 60px;
+  position: absolute;
+  top: 0;
+  left: 10;
+  padding: 10px; 
+  z-index: 10;  
+}
+
+#underoverskrift {
+  color: white;
+  font-family:'Franklin Gothic Medium', 'Arial Narrow', Arial, sans-serif;
+  font-size: 30px;
+  position: absolute;
+  
 
 }
