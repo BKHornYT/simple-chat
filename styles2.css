@@ -1,3 +1,4 @@
+/* === Basic Page Layout === */
 body {
     font-family: Arial, sans-serif;
     background: #f5f5f5;
@@ -7,6 +8,7 @@ body {
     margin: 0;
 }
 
+/* === Chat Box === */
 #chat-container {
     width: 400px;
     background: white;
@@ -17,41 +19,84 @@ body {
     flex-direction: column;
 }
 
+/* === Fixed Height + Scrollable Messages === */
 #messages {
-    flex: 1;
-    height: 300px;
-    overflow-y: auto;
-    margin-bottom: 10px;
+    height: 350px;            /* ✅ fixed size */
+    max-height: 350px;        /* ✅ never grows forever */
+    overflow-y: auto;         /* ✅ scroll when full */
     border: 1px solid #ddd;
     padding: 10px;
     border-radius: 5px;
+    background: #f7f7f7;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 10px;
 }
 
+/* === Discord-style Message Wrapper === */
 .message {
-    margin: 5px 0;
-    padding: 8px 10px;
-    border-radius: 8px;
-    max-width: 80%;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    max-width: 90%;
 }
 
-.user {
+/* === Avatar Circle === */
+.avatar {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    background-size: cover;
+    background-position: center;
+    flex-shrink: 0;
+}
+
+/* === Message Bubble === */
+.msg-content {
+    background: #e6e6e6;
+    padding: 8px 12px;
+    border-radius: 10px;
+    max-width: 260px;
+    word-break: break-word;
+    display: flex;
+    flex-direction: column;
+}
+
+/* === Username + Timestamp === */
+.msg-header {
+    font-size: 12px;
+    font-weight: bold;
+    margin-bottom: 3px;
+}
+
+.timestamp {
+    font-size: 10px;
+    opacity: 0.5;
+    margin-left: 6px;
+    font-weight: normal;
+}
+
+/* === Self message bubble color === */
+.self .msg-content {
     background: #0078ff;
     color: white;
+}
+
+/* Align self messages to the right */
+.self {
     align-self: flex-end;
 }
 
-.bot {
-    background: #eee;
-    align-self: flex-start;
-}
-
+/* === Input box === */
 #user-input {
     padding: 10px;
-    flex: 1;
     border-radius: 5px;
     border: 1px solid #ccc;
+    flex: 1;
 }
 
+/* === Send button === */
 #send-btn {
     margin-top: 8px;
     padding: 10px;
@@ -61,33 +106,35 @@ body {
     border-radius: 5px;
     cursor: pointer;
 }
+
 #send-btn:hover {
     background-color: #0056b3;
 }
 
+/* === Navbar (unchanged) === */
 ul {
-  list-style-type: none;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  background-color: #333333;
-  width: 100%;
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: #333333;
+    width: 100%;
     position: sticky;
     top: 0;
 }
 
 ul li {
-  float: left;
+    float: left;
 }
 
 ul li a {
-  display: block;
-  color: white;
-  text-align: center;
-  padding: 14px 16px;
-  text-decoration: none;
+    display: block;
+    color: white;
+    text-align: center;
+    padding: 14px 16px;
+    text-decoration: none;
 }
 
 ul li a:hover {
-  background-color: #111111;
+    background-color: #111111;
 }
