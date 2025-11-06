@@ -2,20 +2,14 @@
 
 
 // Wait until the page and Firebase are ready
-window.addEventListener("load", () => {
 
-  //  Check that Firebase is loaded
-  if (!window.firebase) {
-    console.error("Firebase not found. Make sure firebase-app-compat.js and firebase-database-compat.js are loaded BEFORE this file.");
-    return;
-  }
 
   //  Make sure Firebase is initialized
   if (!window.db) {
     const firebaseConfig = {
       apiKey: "AIzaSyBi9MKK_bhjIymbvoe1WNjZYHfhzaC_EHQ",
       authDomain: "localwebchat.firebaseapp.com",
-      databaseURL: "https://localwebchat-default-rtdb.europe-west1.firebasedatabase.app/",
+      databaseURL: "https://localwebchat-default-rtdb.europe-west1.firebasedatabase.app/",  
       projectId: "localwebchat",
       storageBucket: "localwebchat.appspot.com",
       messagingSenderId: "508495711943",
