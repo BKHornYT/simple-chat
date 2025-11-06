@@ -1,23 +1,28 @@
+// ✅ Import Firebase correctly
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import {
+    getDatabase,
+    ref,
+    set,
+    onChildAdded
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
+// ✅ Firebase config
+const firebaseConfig = {
+    apiKey: "AIzaSyBi9MKK_bhjIymbvoe1WNjZYHfhzaC_EHQ",
+    authDomain: "localwebchat.firebaseapp.com",
+    databaseURL: "https://localwebchat-default-rtdb.europe-west1.firebasedatabase.app/", // ✅ NOTICE TRAILING SLASH
+    projectId: "localwebchat",
+    storageBucket: "localwebchat.firebasestorage.app",
+    messagingSenderId: "508495711943",
+    appId: "1:508495711943:web:fb438f6a1fd138b29cf8e2",
+};
 
-
-// Wait until the page and Firebase are ready
-
-
-  //  Make sure Firebase is initialized
-  if (!window.db) {
-    const firebaseConfig = {
-      apiKey: "AIzaSyBi9MKK_bhjIymbvoe1WNjZYHfhzaC_EHQ",
-      authDomain: "localwebchat.firebaseapp.com",
-      databaseURL: "https://localwebchat-default-rtdb.europe-west1.firebasedatabase.app/",  
-      projectId: "localwebchat",
-      storageBucket: "localwebchat.appspot.com",
-      messagingSenderId: "508495711943",
-      appId: "1:508495711943:web:fb438f6a1fd138b29cf8e2",
-    };
-    const app = firebase.initializeApp(firebaseConfig);
-    window.db = firebase.database();
-  }
+// ✅ INIT FIREBASE
+console.log("🔥 Initializing Firebase…");
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+console.log("✅ Firebase initialized");
 
 // ✅ HTML elements
 const messagesDiv = document.getElementById("messages");
