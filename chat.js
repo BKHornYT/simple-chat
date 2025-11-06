@@ -1,9 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { 
-    getDatabase, 
-    ref, 
-    set, 
-    onChildAdded 
+import {
+  getDatabase, ref, push, set, onChildAdded, update, onValue
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 const firebaseConfig = {
@@ -17,102 +14,133 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+const db  = getDatabase(app);
+
+const authPanel  = document.getElementById("auth-panel");
+const chat       = document.getElementById("chat-container");
+
+const usernameIn = document.getElementById("username-input");
+const joinBtn    = document.getElementById("join-btn");
 
 const messagesDiv = document.getElementById("messages");
 const userInput   = document.getElementById("user-input");
 const sendBtn     = document.getElementById("send-btn");
+const typingEl    = document.getElementById("typing-indicator");
 
-// ✅ Ask username once
-let username = localStorage.getItem("chatUsername");
-if (!username) {
-    username = prompt("Choose a username:");
-    localStorage.setItem("chatUsername", username);
+const editBtn     = document.getElementById("edit-profile-btn");
+const modal       = document.getElementById("profile-modal");
+const modalName   = document.getElementById("profile-username");
+const modalColor  = document.getElementById("profile-color");
+
+let username = localStorage.getItem("chatUsername") || "";
+let accent   = localStorage.getItem("chatAccent")   || "#0078ff";
+let typingTimer;
+
+const initial = n => n.charAt(0).toUpperCase();
+
+// ✅ If username saved → skip login
+if (username) {
+  usernameIn.value = username;
 }
 
-// ✅ Avatar generator
-function getAvatarColor(name) {
-    const colors = ["red", "blue", "green", "purple", "orange", "pink", "teal"];
-    return colors[name.toUpperCase().charCodeAt(0) % colors.length];
+// ✅ Display message bubble
+function addMsg({ text, username:uname, timestamp }) {
+  const wrap = document.createElement("div");
+  wrap.className = "message" + (uname === username ? " self" : "");
+
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.style.background = uname === username ? accent : "#555";
+  avatar.textContent = initial(uname);
+
+  const box = document.createElement("div");
+  box.className = "msg-content";
+
+  const head = document.createElement("div");
+  head.className = "msg-header";
+  head.innerHTML = `${uname} <span class="timestamp">${timestamp}</span>`;
+
+  const body = document.createElement("div");
+  body.textContent = text;
+
+  box.append(head, body);
+  wrap.append(avatar, box);
+
+  messagesDiv.appendChild(wrap);
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
 
-// ✅ Track last sent message to block duplicate from Firebase
-let lastSentMessage = "";
+// ✅ Listen for real-time messages (GLOBAL)
+onChildAdded(ref(db, "global/messages"), snap => {
+  addMsg(snap.val());
+});
 
-// ✅ Add message to UI (works for old + new messages)
-function addMessage(data, isSelf) {
-    const wrapper = document.createElement("div");
-    wrapper.classList.add("message");
+// ✅ Join the chat
+joinBtn.onclick = () => {
+  const name = usernameIn.value.trim();
+  if (!name) return alert("Choose a username.");
 
-    if (isSelf) wrapper.classList.add("self");
+  username = name;
+  localStorage.setItem("chatUsername", username);
 
-    // Avatar
-    const avatar = document.createElement("div");
-    avatar.classList.add("avatar");
-    avatar.style.background = getAvatarColor(data.username);
+  authPanel.style.display = "none";
+  chat.style.display = "block";
+};
 
-    // Message content wrapper
-    const content = document.createElement("div");
-    content.classList.add("msg-content");
-
-    // Username + timestamp row
-    const header = document.createElement("div");
-    header.classList.add("msg-header");
-    header.innerHTML = `${data.username} <span class="timestamp">${data.timestamp}</span>`;
-
-    // Message text
-    const body = document.createElement("div");
-    body.textContent = data.text;
-
-    content.appendChild(header);
-    content.appendChild(body);
-
-    wrapper.appendChild(avatar);
-    wrapper.appendChild(content);
-
-    messagesDiv.appendChild(wrapper);
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-}
-
-// ✅ SEND MESSAGE
+// ✅ Send message
 function sendMessage() {
-    const text = userInput.value.trim();
-    if (!text) return;
+  const text = userInput.value.trim();
+  if (!text) return;
 
-    const id = Date.now();
-    const timestamp = new Date().toLocaleTimeString();
+  const msg = {
+    text,
+    username,
+    timestamp: new Date().toLocaleTimeString()
+  };
 
-    const data = {
-        text: text,
-        timestamp: timestamp,
-        username: username
-    };
+  push(ref(db, "global/messages"), msg);
 
-    lastSentMessage = text; // ✅ remember for duplicate prevention
-
-    set(ref(db, "messages/" + id), data);
-
-    addMessage(data, true); // ✅ show instantly
-
-    userInput.value = "";
+  userInput.value = "";
 }
 
-// ✅ Enter key
-userInput.addEventListener("keypress", e => {
-    if (e.key === "Enter") sendMessage();
+sendBtn.onclick = sendMessage;
+userInput.onkeypress = e => {
+  if (e.key === "Enter") sendMessage();
+};
+
+// ✅ Typing indicator
+userInput.addEventListener("input", () => {
+  update(ref(db, "typing/" + username), true);
+
+  clearTimeout(typingTimer);
+  typingTimer = setTimeout(() => {
+    update(ref(db, "typing/" + username), false);
+  }, 800);
 });
 
-// ✅ Send button
-sendBtn.addEventListener("click", sendMessage);
-
-// ✅ RECEIVE MESSAGES (OLD + NEW)
-onChildAdded(ref(db, "messages"), snapshot => {
-    const data = snapshot.val();
-
-    // ✅ Prevent only ONE duplicate: the exact message we just sent
-    if (data.text === lastSentMessage && data.username === username) {
-        return;
-    }
-
-    addMessage(data, data.username === username);
+onValue(ref(db, "typing"), snap => {
+  const data = snap.val() || {};
+  const someoneTyping = Object.entries(data).some(
+    ([name, state]) => name !== username && state === true
+  );
+  typingEl.style.display = someoneTyping ? "block" : "none";
 });
+
+// ✅ Profile edit modal
+editBtn.onclick = () => {
+  modalName.value = username;
+  modalColor.value = accent;
+  modal.showModal();
+};
+
+document.getElementById("profile-cancel").onclick = () => modal.close();
+
+document.getElementById("profile-save").onclick = () => {
+  username = modalName.value.trim() || username;
+  localStorage.setItem("chatUsername", username);
+
+  accent = modalColor.value;
+  localStorage.setItem("chatAccent", accent);
+
+  modal.close();
+};

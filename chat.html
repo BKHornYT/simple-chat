@@ -1,21 +1,53 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chat</title>
-  <link rel="stylesheet" href="styles2.css">
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Simple Chat</title>
+  <link rel="stylesheet" href="styles2.css"/>
 </head>
 <body>
-  <h1>Velkommen til chatten!</h1>
 
-  <div id="chat-container">
-    <div id="messages"></div>
-    <input type="text" id="user-input" placeholder="Skriv en melding...">
-    <button id="send-btn">Send</button>
-  </div>
+  <header class="topbar">
+    <div class="brand">Simple Chat</div>
+    <div class="spacer"></div>
+    <button id="edit-profile-btn" class="btn ghost">Profile</button>
+  </header>
 
-  <!-- ✅ Load modern Firebase modules correctly -->
+  <section id="auth-panel" class="card center">
+    <h2>Choose a username</h2>
+    <input id="username-input" placeholder="Username"/>
+    <button id="join-btn" class="btn">Enter Chat</button>
+  </section>
+
+  <main id="chat-container" style="display:none;">
+    <div class="chat-header">
+      <div class="room-pill"># global</div>
+      <div id="typing-indicator" class="typing" style="display:none;">Someone is typing…</div>
+    </div>
+
+    <div id="messages" class="messages"></div>
+
+    <div class="composer">
+      <input id="user-input" placeholder="Type a message…" autocomplete="off"/>
+      <button id="send-btn" class="btn primary">Send</button>
+    </div>
+  </main>
+
+  <dialog id="profile-modal" class="modal">
+    <form method="dialog" class="modal-card">
+      <h3>Edit Profile</h3>
+      <label>Username</label>
+      <input id="profile-username"/>
+      <label>Accent Color</label>
+      <input id="profile-color" type="color"/>
+      <div class="row-right">
+        <button id="profile-cancel" class="btn ghost">Cancel</button>
+        <button id="profile-save" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
   <script type="module" src="chat.js"></script>
 </body>
 </html>

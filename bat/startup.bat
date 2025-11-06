@@ -1,45 +1,50 @@
 @echo off
-title Simple Chat Server
+title Simple Chat Server (robust)
 echo =======================================
 echo        Starting Simple Chat
 echo =======================================
 echo.
 
-:: Change directory to your site folder
+:: Change to your site folder (adjust if needed)
 cd /d "C:\Users\bjorn\OneDrive - Rogaland Fylkeskommune EES\Dokumenter\GitHub\Nettsiderskoletulleri\simple-chat"
 
-:: Start the local server in the background
+:: Start Python server in background
 echo Launching Python HTTP server on port 5500...
-start /B python -m http.server 5500
+start "pyserv" /B python -m http.server 5500
 
-:: Wait two seconds
+:: Wait a moment
 timeout /t 2 >nul
 
-:: Open the site locally
+:: Open local site in browser (optional)
 start "" "http://localhost:5500"
 
-echo.
-echo =======================================
-echo   Starting LocalTunnel (stable mode)
-echo =======================================
-echo.
-
-:START_LT
-echo Opening LocalTunnel on port 5500...
-echo If this fails, it will automatically retry.
-echo.
-
-lt --port 5500 --subdomain simplechatdemo --local-host localhost
-IF ERRORLEVEL 1 (
+:: If cloudflared.exe exists in this folder, use it (stable)
+if exist ".\cloudflared.exe" (
+    echo Found cloudflared.exe — starting stable Cloudflare Tunnel...
+    echo (Press CTRL+C to stop both tools)
+    start /B .\cloudflared.exe tunnel --url http://localhost:5500
+    echo Cloudflare tunnel started in background.
+    echo Your site: (see cloudflared console window for URL)
     echo.
-    echo LocalTunnel failed! Retrying in 5 seconds...
-    timeout /t 5 >nul
-    goto START_LT
+    echo Press any key to stop all...
+    pause >nul
+    goto STOP_ALL
 )
 
-:: When LocalTunnel closes, kill the server
-echo.
+:: Otherwise use LocalTunnel but keep it in a retry loop
+:LT_LOOP
+echo Starting localtunnel (lt)...
+echo lt --port 5500 --local-host localhost --subdomain simplechatdemo
+lt --port 5500 --local-host localhost --subdomain simplechatdemo
+if %ERRORLEVEL% NEQ 0 (
+    echo LocalTunnel crashed or refused connection (error %ERRORLEVEL%).
+    echo Retrying in 5 seconds...
+    timeout /t 5 >nul
+    goto LT_LOOP
+)
+
+:STOP_ALL
 echo Stopping local server...
 taskkill /F /IM python.exe >nul 2>&1
-echo Server stopped.
+echo Done.
 pause
