@@ -72,6 +72,8 @@ ul {
   overflow: hidden;
   background-color: #333333;
   width: 100%;
+    position: sticky;
+    top: 0;
 }
 
 ul li {
