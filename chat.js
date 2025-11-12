@@ -22,7 +22,7 @@ const db  = getDatabase(app);
 
 /* Admin (client-side) */
 const ADMIN_USERNAME = "BKHorn";
-const ADMIN_PASSWORD = "eyfuv337";
+const ADMIN_PASSWORD = "123";
 let isAdmin = false;
 
 /* State */
