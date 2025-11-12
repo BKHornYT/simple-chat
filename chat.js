@@ -22,19 +22,31 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db  = getDatabase(app);
 
-/* ================ Admin creds from DB ================ */
-/* Expect in your DB:
-config: {
-  admin: { username: "BKHorn", password: "eyfuv337" }
-}
-*/
+
 let ADMIN_USERNAME = "";
 let ADMIN_PASSWORD = "";
-get(ref(db, "config/admin")).then(snap => {
-  const data = snap.val() || {};
-  ADMIN_USERNAME = data.username || "";
-  ADMIN_PASSWORD = data.password || "";
-});
+
+const adminPath = ref(db, "config/admin");
+
+get(adminPath).then((snap) => {
+  if (snap.exists()) {
+    const data = snap.val() || {};
+    ADMIN_USERNAME = data.username || "";
+    ADMIN_PASSWORD = data.password || "";
+    console.log("Loaded admin credentials from Firebase.");
+  } else {
+    // Create a placeholder so you can edit it in the Firebase console
+    set(adminPath, {
+      username: "admin-placeholder",
+      password: "set-this-in-firebase"
+    }).then(() => {
+      console.log("✅ Created /config/admin in Firebase — go fill it in.");
+      ADMIN_USERNAME = "admin-placeholder";
+      ADMIN_PASSWORD = "set-this-in-firebase";
+    }).catch((err) => console.error("Error creating admin node:", err));
+  }
+}).catch((err) => console.error("Error checking admin config:", err));
+
 
 /* ================= State & helpers ================= */
 let isAdmin = false;
