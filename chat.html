@@ -31,6 +31,7 @@
     <aside class="sidebar">
       <div class="section-title">Channels</div>
       <ul id="channels-list" class="list"></ul>
+
       <div style="display:flex;gap:8px;margin-top:8px;">
         <button id="add-channel-btn" class="btn ghost">+ Add</button>
         <button id="delete-channel-btn" class="btn danger" style="display:none;">Delete</button>
@@ -113,6 +114,7 @@
     </div>
   </dialog>
 
-  <script type="module" src="chat.js"></script>
+  <!-- cache-bust to ensure latest JS loads -->
+  <script type="module" src="chat.js?v=secure-admin-1"></script>
 </body>
 </html>
