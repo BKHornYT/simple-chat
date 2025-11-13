@@ -1,6 +1,6 @@
-// Simple Chat+ (secure usernames, roles-based admin, no guests)
-// Features: profiles, avatars, colors, themes per channel, presence, channels with owner/admin control,
-// images, GIFs (Tenor), link embeds, typing indicator, Base64 message storage.
+// Discord-like Simple Chat+
+// Case-insensitive usernames, roles-based admin/mod, private channels, DMs,
+// presence, themes, GIFs, images, embeds, typing.
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
@@ -30,38 +30,34 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-/* ========= State & helpers ========= */
-let username = "";
+/* ========= State ========= */
+let userId = "";        // lowercase ID for DB paths
+let displayName = "";   // pretty username
 let userColor = "#0078ff";
 let avatar = "";
 let isAdmin = false;
 let isMod = false;
-let currentChannel = localStorage.getItem("chatChannel") || "general";
+
+let currentRoom = { type: "channel", id: "general" }; // {type:"channel"|"dm", id:string}
 let typingTimer = null;
-const TENOR_KEY = "LIVDSRZULELA"; // demo key
+const TENOR_KEY = "LIVDSRZULELA";
 
 const $ = (id) => document.getElementById(id);
 const messagesDiv = $("messages");
 
-/* Device id to lock usernames per device */
+/* ========= Device ID ========= */
 let deviceId = localStorage.getItem("deviceId");
 if (!deviceId) {
-  if (window.crypto && crypto.randomUUID) {
-    deviceId = crypto.randomUUID();
-  } else {
-    deviceId = Date.now() + "-" + Math.random();
-  }
+  if (window.crypto?.randomUUID) deviceId = crypto.randomUUID();
+  else deviceId = Date.now() + "-" + Math.random();
   localStorage.setItem("deviceId", deviceId);
 }
 
-/* Helpers */
+/* ========= Helpers ========= */
 const b64e = (s) => btoa(unescape(encodeURIComponent(s)));
 const b64d = (s) => {
-  try {
-    return decodeURIComponent(escape(atob(s)));
-  } catch {
-    return s;
-  }
+  try { return decodeURIComponent(escape(atob(s))); }
+  catch { return s; }
 };
 const el = (t, c) => {
   const e = document.createElement(t);
@@ -70,23 +66,9 @@ const el = (t, c) => {
 };
 const initial = (n) => (n || "?").trim().charAt(0).toUpperCase();
 function colorFromName(name) {
-  const pal = [
-    "#f43f5e",
-    "#ef4444",
-    "#f97316",
-    "#f59e0b",
-    "#10b981",
-    "#06b6d4",
-    "#3b82f6",
-    "#8b5cf6",
-    "#a855f7",
-    "#ec4899"
-  ];
+  const pal = ["#f43f5e","#ef4444","#f97316","#f59e0b","#10b981","#06b6d4","#3b82f6","#8b5cf6","#a855f7","#ec4899"];
   let code = 0;
-  (name || "")
-    .toUpperCase()
-    .split("")
-    .forEach((ch) => (code += ch.charCodeAt(0)));
+  (name || "").toUpperCase().split("").forEach(ch => code += ch.charCodeAt(0));
   return pal[code % pal.length];
 }
 function sanitizeChannelName(name) {
@@ -96,24 +78,33 @@ function sanitizeChannelName(name) {
     .replace(/[^a-z0-9\-_]/g, "")
     .slice(0, 25);
 }
+function roomKey() {
+  if (currentRoom.type === "channel") return `channel:${currentRoom.id}`;
+  return `dm:${currentRoom.id}`;
+}
 
 /* ========= Profiles ========= */
 let profilesCache = {};
-onValue(ref(db, "profiles"), (snap) => {
+onValue(ref(db, "profiles"), snap => {
   profilesCache = snap.val() || {};
 });
 
 async function saveProfile() {
-  const profile = { username, color: userColor, avatar, deviceId };
-  localStorage.setItem("chatProfile", JSON.stringify(profile));
-  await set(ref(db, `profiles/${username}`), profile);
+  const profile = {
+    userId,
+    username: displayName,
+    color: userColor,
+    avatar,
+    deviceId
+  };
+  localStorage.setItem("chatSession", JSON.stringify(profile));
+  await set(ref(db, `profiles/${userId}`), profile);
 }
 
-/* ========= Roles (admin/mod) ========= */
-// roles/{username} = "admin" | "mod" | "moderator"
+/* ========= Roles ========= */
 function watchRoles() {
-  if (!username) return;
-  onValue(ref(db, `roles/${username}`), (snap) => {
+  if (!userId) return;
+  onValue(ref(db, `roles/${userId}`), snap => {
     const role = snap.val();
     isAdmin = role === "admin";
     isMod = role === "mod" || role === "moderator";
@@ -121,38 +112,38 @@ function watchRoles() {
   });
 }
 
-/* ========= Auth flow (no guests, usernames locked per-device) ========= */
-const savedProfile = JSON.parse(localStorage.getItem("chatProfile") || "{}");
-if (savedProfile.username) {
-  username = savedProfile.username;
-  userColor = savedProfile.color || userColor;
-  avatar = savedProfile.avatar || "";
+/* ========= Auth ========= */
+const saved = JSON.parse(localStorage.getItem("chatSession") || "{}");
+if (saved.userId) {
+  userId = saved.userId;
+  displayName = saved.username;
+  userColor = saved.color || userColor;
+  avatar = saved.avatar || "";
   $("auth-panel").style.display = "none";
   $("app").style.display = "grid";
   startApp();
 }
 
-async function usernameTakenByOtherDevice(name) {
-  const snap = await get(ref(db, `profiles/${name}`));
+async function usernameTakenByOtherDevice(lower) {
+  const snap = await get(ref(db, `profiles/${lower}`));
   if (!snap.exists()) return false;
   const data = snap.val() || {};
-  if (!data.deviceId) return true; // old user without deviceId => treat as protected
+  if (!data.deviceId) return true;
   return data.deviceId !== deviceId;
 }
 
 $("join-btn").onclick = async () => {
-  const name = $("username-input").value.trim();
-  if (!name) {
-    alert("Pick a username");
-    return;
-  }
+  const raw = $("username-input").value.trim();
+  if (!raw) return alert("Enter a username.");
+  const lower = raw.toLowerCase();
 
-  if (await usernameTakenByOtherDevice(name)) {
+  if (await usernameTakenByOtherDevice(lower)) {
     alert("That username is already taken.");
     return;
   }
 
-  username = name;
+  userId = lower;
+  displayName = raw;
   await saveProfile();
 
   $("auth-panel").style.display = "none";
@@ -163,8 +154,8 @@ $("join-btn").onclick = async () => {
 
 /* Profile modal */
 $("edit-profile-btn").onclick = () => {
-  $("profile-username").value = username;
-  $("profile-username").disabled = true; // usernames are locked
+  $("profile-username").value = displayName;
+  $("profile-username").disabled = true;
   $("profile-color").value = userColor;
   $("profile-preview").src = avatar || "";
   $("profile-modal").showModal();
@@ -185,41 +176,37 @@ $("profile-form").onsubmit = async (ev) => {
   $("profile-modal").close();
 };
 
-/* ========= Presence (only real, online users) ========= */
+/* ========= Presence ========= */
 function startPresence() {
-  if (!username) return;
-
-  const userRef = ref(db, `presence/${username}`);
+  if (!userId) return;
+  const userRef = ref(db, `presence/${userId}`);
   const connectedRef = ref(db, ".info/connected");
 
-  onValue(connectedRef, (snap) => {
+  onValue(connectedRef, snap => {
     if (snap.val() === false) return;
-    onDisconnect(userRef)
-      .remove()
-      .then(() => {
-        set(userRef, {
-          online: true,
-          room: currentChannel,
-          at: serverTimestamp(),
-          deviceId
-        });
+    onDisconnect(userRef).remove().then(() => {
+      set(userRef, {
+        online: true,
+        room: roomKey(),
+        at: serverTimestamp(),
+        deviceId
       });
+    });
   });
 
-  onValue(ref(db, "presence"), (snap) => {
+  onValue(ref(db, "presence"), snap => {
     const val = snap.val() || {};
     $("users-list").innerHTML = "";
 
-    Object.entries(val).forEach(([name, info]) => {
-      if (!profilesCache[name]) return; // skip unknown users
+    Object.entries(val).forEach(([id, info]) => {
+      const prof = profilesCache[id];
+      if (!prof) return;
       if (!info?.online) return;
-      if (info.room !== currentChannel) return;
-
+      if (info.room !== roomKey()) return;
       const ageMs = Date.now() - (info.at || 0);
-      if (ageMs > 60000) return; // stale > 1 min
+      if (ageMs > 60000) return;
 
       const li = el("li", "user-item");
-      const prof = profilesCache[name];
 
       if (prof.avatar) {
         const img = el("img", "avatar");
@@ -227,98 +214,96 @@ function startPresence() {
         li.appendChild(img);
       } else {
         const a = el("div", "avatar");
-        a.textContent = initial(name);
-        a.style.background = prof.color || colorFromName(name);
+        a.textContent = initial(prof.username || id);
+        a.style.background = prof.color || colorFromName(prof.username || id);
         li.appendChild(a);
       }
 
       const nm = el("div", "name");
-      nm.textContent = name;
+      nm.textContent = prof.username || id;
       li.appendChild(nm);
 
-      const badge = el("div", "badge");
-      badge.textContent = name === username ? "you" : "online";
-      li.appendChild(badge);
+      const bd = el("div", "badge");
+      bd.textContent = id === userId ? "you" : "online";
+      li.appendChild(bd);
 
       $("users-list").appendChild(li);
     });
   });
 }
 
-/* ========= Channels ========= */
+/* ========= Channels & DMs ========= */
 $("add-channel-btn").onclick = addChannel;
 $("delete-channel-btn").onclick = deleteChannel;
+$("new-dm-btn").onclick = startNewDm;
 
 function addChannel() {
-  const desired = prompt("Channel name (letters, numbers, - or _):", "my-channel");
+  const desired = prompt("Channel name (letters, numbers, - or _):", "general-2");
   if (!desired) return;
   const clean = sanitizeChannelName(desired);
-  if (!clean) {
-    alert("Invalid channel name.");
-    return;
-  }
+  if (!clean) return alert("Invalid channel name.");
 
   const metaRef = ref(db, `channelsMeta/${clean}`);
-  get(metaRef).then((snap) => {
+  get(metaRef).then(snap => {
     if (snap.exists()) {
-      // already exists -> just switch
-      switchChannel(clean);
+      switchToChannel(clean);
       return;
     }
-    // create new
+    const isPrivate = confirm("Make this channel private? (OK = yes / Cancel = public)");
+    const members = {};
+    members[userId] = true;
+
     Promise.all([
       set(ref(db, `channels/${clean}/messages`), {}),
       set(metaRef, {
-        creator: username,
+        creator: userId,
         desc: "",
         theme: { bgColor: "#fafafa", bgImage: "" },
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        private: isPrivate,
+        members
       })
-    ])
-      .then(() => {
-        refreshChannelList();
-        switchChannel(clean);
-      })
-      .catch(() => alert("Failed to create channel"));
+    ]).then(() => {
+      refreshChannelList();
+      switchToChannel(clean);
+    }).catch(() => alert("Failed to create channel"));
   });
 }
 
 function deleteChannel() {
-  const metaRef = ref(db, `channelsMeta/${currentChannel}`);
-  get(metaRef).then((snap) => {
+  if (currentRoom.type !== "channel") return alert("You can only delete channels.");
+  const metaRef = ref(db, `channelsMeta/${currentRoom.id}`);
+  get(metaRef).then(snap => {
     const meta = snap.val();
     if (!meta) return;
-    const owner = meta.creator === username;
-    if (!owner && !isAdmin && !isMod) {
-      alert("Only the owner or an admin can delete this channel.");
-      return;
-    }
-    if (!confirm(`Delete #${currentChannel}?`)) return;
+    const owner = meta.creator === userId;
+    if (!owner && !isAdmin && !isMod) return alert("Only the owner or an admin can delete this channel.");
+    if (!confirm(`Delete #${currentRoom.id}?`)) return;
 
     Promise.all([
-      remove(ref(db, `channels/${currentChannel}`)),
+      remove(ref(db, `channels/${currentRoom.id}`)),
       remove(metaRef)
-    ])
-      .then(() => {
-        refreshChannelList();
-        switchChannel("general");
-      })
-      .catch(() => alert("Failed to delete channel"));
+    ]).then(() => {
+      refreshChannelList();
+      switchToChannel("general");
+    }).catch(() => alert("Failed to delete channel"));
   });
 }
 
 function refreshChannelList() {
-  onValue(ref(db, "channelsMeta"), (snap) => {
+  onValue(ref(db, "channelsMeta"), snap => {
     const meta = snap.val() || {};
     const list = $("channels-list");
     list.innerHTML = "";
 
-    Object.keys(meta)
-      .sort()
-      .forEach((name) => {
+    Object.entries(meta)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .forEach(([name, info]) => {
+        if (info.private && !info.members?.[userId] && !isAdmin && !isMod) return;
+
         const li = el("li", "item");
-        if (name === currentChannel) li.classList.add("active");
-        li.onclick = () => switchChannel(name);
+        if (currentRoom.type === "channel" && currentRoom.id === name) li.classList.add("active");
+        li.onclick = () => switchToChannel(name);
 
         const hash = el("div", "hash");
         hash.textContent = "#";
@@ -333,32 +318,74 @@ function refreshChannelList() {
   });
 }
 
-function refreshChannelControls() {
-  const themeBtn = $("theme-btn");
-  const delBtn = $("delete-channel-btn");
-  if (!themeBtn || !delBtn || !currentChannel) return;
+/* DMs Index: dmsIndex/{userId}/{otherId} = roomId */
+function startNewDm() {
+  const targetName = prompt("DM who? (username, case-insensitive)");
+  if (!targetName) return;
+  const lower = targetName.trim().toLowerCase();
+  if (!lower) return;
+  if (lower === userId) return alert("You can't DM yourself.");
 
-  get(ref(db, `channelsMeta/${currentChannel}`)).then((snap) => {
-    const meta = snap.val() || {};
-    const owner = meta.creator === username;
-    const allowed = owner || isAdmin || isMod;
+  get(ref(db, `profiles/${lower}`)).then(snap => {
+    if (!snap.exists()) {
+      alert("User not found.");
+      return;
+    }
+    const other = lower;
+    const me = userId;
+    const key = me < other ? `${me}__${other}` : `${other}__${me}`;
+    const roomId = `dm_${key}`;
 
-    themeBtn.style.display = allowed ? "inline-block" : "none";
-    delBtn.style.display = allowed ? "inline-block" : "none";
+    const myIndex = ref(db, `dmsIndex/${me}/${other}`);
+    const theirIndex = ref(db, `dmsIndex/${other}/${me}`);
+
+    Promise.all([
+      set(myIndex, roomId),
+      set(theirIndex, roomId),
+      update(ref(db, `dmsMeta/${roomId}`), {
+        users: { [me]: true, [other]: true },
+        updatedAt: Date.now()
+      })
+    ]).then(() => {
+      switchToDm(roomId, other);
+    });
   });
 }
 
-function switchChannel(name) {
-  if (!name) return;
-  currentChannel = name;
-  localStorage.setItem("chatChannel", name);
-  $("room-pill-name").textContent = name;
-  $("room-name-label").textContent = name;
+function watchDmList() {
+  if (!userId) return;
+  onValue(ref(db, `dmsIndex/${userId}`), snap => {
+    const val = snap.val() || {};
+    const list = $("dm-list");
+    list.innerHTML = "";
 
-  // Update presence room
-  if (username) {
-    update(ref(db, `presence/${username}`), {
-      room: currentChannel,
+    Object.entries(val).forEach(([otherId, roomId]) => {
+      const prof = profilesCache[otherId];
+      const li = el("li", "item");
+      if (currentRoom.type === "dm" && currentRoom.id === roomId) li.classList.add("active");
+      li.onclick = () => switchToDm(roomId, otherId);
+
+      const av = el("div", "dm-avatar");
+      av.textContent = initial(prof?.username || otherId);
+      const nm = el("div", "name");
+      nm.textContent = prof?.username || otherId;
+
+      li.append(av, nm);
+      list.appendChild(li);
+    });
+  });
+}
+
+/* ========= Switch room ========= */
+function switchToChannel(name) {
+  currentRoom = { type: "channel", id: name };
+  $("room-pill-prefix").textContent = "#";
+  $("room-pill-name").textContent = name;
+  $("room-name-label").textContent = `#${name}`;
+
+  if (userId) {
+    update(ref(db, `presence/${userId}`), {
+      room: roomKey(),
       at: serverTimestamp()
     }).catch(() => {});
   }
@@ -368,30 +395,49 @@ function switchChannel(name) {
   refreshChannelControls();
 }
 
-/* ========= Theme per channel ========= */
+function switchToDm(roomId, otherId) {
+  currentRoom = { type: "dm", id: roomId };
+  const prof = profilesCache[otherId];
+  const label = prof?.username || otherId;
+  $("room-pill-prefix").textContent = "@";
+  $("room-pill-name").textContent = label;
+  $("room-name-label").textContent = `@${label}`;
+
+  if (userId) {
+    update(ref(db, `presence/${userId}`), {
+      room: roomKey(),
+      at: serverTimestamp()
+    }).catch(() => {});
+  }
+
+  attachMessages();
+  messagesDiv.style.backgroundImage = "none";
+  messagesDiv.style.backgroundColor = "#fafafa";
+  $("theme-btn").style.display = "none";
+  $("delete-channel-btn").style.display = isAdmin || isMod ? "inline-block" : "none";
+}
+
+/* ========= Theme ========= */
 $("theme-btn").onclick = () => {
-  const metaRef = ref(db, `channelsMeta/${currentChannel}`);
-  get(metaRef).then((snap) => {
+  if (currentRoom.type !== "channel") {
+    alert("Themes only apply to channels.");
+    return;
+  }
+  const metaRef = ref(db, `channelsMeta/${currentRoom.id}`);
+  get(metaRef).then(snap => {
     const meta = snap.val();
     if (!meta) return;
-
-    const owner = meta.creator === username;
+    const owner = meta.creator === userId;
     if (!owner && !isAdmin && !isMod) {
       alert("Only the owner or admin can edit theme.");
       return;
     }
-
     const theme = meta.theme || {};
     $("theme-color").value = theme.bgColor || "#fafafa";
-    if (theme.bgImage) {
-      $("upload-bg-btn").dataset.bg = theme.bgImage;
-    } else {
-      $("upload-bg-btn").dataset.bg = "";
-    }
+    $("upload-bg-btn").dataset.bg = theme.bgImage || "";
     $("theme-modal").showModal();
   });
 };
-
 $("theme-close").onclick = () => $("theme-modal").close();
 $("upload-bg-btn").onclick = () => $("theme-image").click();
 $("theme-image").onchange = async (e) => {
@@ -402,20 +448,21 @@ $("theme-image").onchange = async (e) => {
   $("upload-bg-btn").dataset.bg = tiny;
 };
 $("theme-save").onclick = () => {
+  if (currentRoom.type !== "channel") return;
   const color = $("theme-color").value || "#fafafa";
   const img = $("upload-bg-btn").dataset.bg || "";
-  update(ref(db, `channelsMeta/${currentChannel}/theme`), {
+  update(ref(db, `channelsMeta/${currentRoom.id}/theme`), {
     bgColor: color,
     bgImage: img
-  })
-    .then(() => {
-      loadTheme();
-      $("theme-modal").close();
-    })
-    .catch(() => alert("Failed to save theme"));
+  }).then(() => {
+    loadTheme();
+    $("theme-modal").close();
+  }).catch(() => alert("Failed to save theme"));
 };
+
 function loadTheme() {
-  get(ref(db, `channelsMeta/${currentChannel}/theme`)).then((snap) => {
+  if (currentRoom.type !== "channel") return;
+  get(ref(db, `channelsMeta/${currentRoom.id}/theme`)).then(snap => {
     const t = snap.val() || {};
     messagesDiv.style.background = t.bgColor || "#fafafa";
     if (t.bgImage) {
@@ -428,34 +475,66 @@ function loadTheme() {
   });
 }
 
+function refreshChannelControls() {
+  const themeBtn = $("theme-btn");
+  const delBtn = $("delete-channel-btn");
+  if (!themeBtn || !delBtn) return;
+
+  if (currentRoom.type !== "channel") {
+    themeBtn.style.display = "none";
+    delBtn.style.display = (isAdmin || isMod) ? "inline-block" : "none";
+    return;
+  }
+
+  get(ref(db, `channelsMeta/${currentRoom.id}`)).then(snap => {
+    const meta = snap.val() || {};
+    const owner = meta.creator === userId;
+    const allowed = owner || isAdmin || isMod;
+    themeBtn.style.display = allowed ? "inline-block" : "none";
+    delBtn.style.display = allowed ? "inline-block" : "none";
+  });
+}
+
 /* ========= Messages ========= */
+function messagesPath() {
+  if (currentRoom.type === "channel") {
+    return `channels/${currentRoom.id}/messages`;
+  }
+  return `dms/${currentRoom.id}/messages`;
+}
+
 function attachMessages() {
-  onValue(ref(db, `channels/${currentChannel}/messages`), (snap) => {
+  onValue(ref(db, messagesPath()), snap => {
     messagesDiv.innerHTML = "";
-    const obj = snap.val() || {};
-    Object.values(obj).forEach(renderMessage);
+    snap.forEach(child => {
+      const id = child.key;
+      const m = child.val();
+      renderMessage(id, m);
+    });
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
   });
 }
 
-function renderMessage(m) {
+function renderMessage(id, m) {
   const wrap = el("div", "message");
-  if (m.username === username) wrap.classList.add("self");
+  if (m.userId === userId) wrap.classList.add("self");
 
-  const prof = profilesCache[m.username] || {};
+  const prof = profilesCache[m.userId] || {};
+  const dispName = prof.username || m.displayName || m.userId || "unknown";
+
   if (prof.avatar) {
     const img = el("img", "avatar");
     img.src = prof.avatar;
     wrap.appendChild(img);
   } else {
     const a = el("div", "avatar");
-    a.textContent = initial(m.username);
-    a.style.background = prof.color || colorFromName(m.username);
+    a.textContent = initial(dispName);
+    a.style.background = prof.color || colorFromName(dispName);
     wrap.appendChild(a);
   }
 
   const box = el("div", "msg-content");
-  if (m.username === username) {
+  if (m.userId === userId) {
     box.style.background = userColor;
     box.style.color = "#fff";
   } else if (prof.color) {
@@ -465,7 +544,7 @@ function renderMessage(m) {
 
   const head = el("div", "msg-header");
   const t = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : "";
-  head.innerHTML = `${m.username || "system"} <span class="timestamp">${t}</span>`;
+  head.innerHTML = `${dispName} <span class="timestamp">${t}</span>`;
   box.appendChild(head);
 
   if (m.type === "image") {
@@ -499,11 +578,12 @@ $("user-input").addEventListener("keydown", (e) => {
 function sendMessage() {
   const txt = $("user-input").value.trim();
   if (!txt) return;
-  const msgRef = push(ref(db, `channels/${currentChannel}/messages`));
+  const msgRef = push(ref(db, messagesPath()));
   set(msgRef, {
     type: "text",
     text: b64e(txt),
-    username,
+    userId,
+    displayName,
     timestamp: Date.now()
   }).then(() => {
     $("user-input").value = "";
@@ -511,19 +591,20 @@ function sendMessage() {
 }
 
 function setTyping(state) {
-  if (!username) return;
-  set(ref(db, `typing/${currentChannel}/${username}`), state).catch(() => {});
+  if (!userId) return;
+  const tRef = ref(db, `typing/${roomKey()}/${userId}`);
+  set(tRef, state).catch(() => {});
   clearTimeout(typingTimer);
   if (state) {
     typingTimer = setTimeout(() => {
-      set(ref(db, `typing/${currentChannel}/${username}`), false).catch(() => {});
+      set(tRef, false).catch(() => {});
     }, 1200);
   }
 }
 
-onValue(ref(db, `typing/${currentChannel}`), (snap) => {
+onValue(ref(db, `typing/${roomKey()}`), snap => {
   const map = snap.val() || {};
-  const others = Object.keys(map).filter((n) => n !== username && map[n]);
+  const others = Object.keys(map).filter(k => k !== userId && map[k]);
   $("typing-indicator").style.display = others.length ? "block" : "none";
 });
 
@@ -533,11 +614,12 @@ $("image-upload").onchange = async (e) => {
   const f = e.target.files?.[0];
   if (!f) return;
   const data = await fileToDataURL(f);
-  const msgRef = push(ref(db, `channels/${currentChannel}/messages`));
+  const msgRef = push(ref(db, messagesPath()));
   set(msgRef, {
     type: "image",
     url: data,
-    username,
+    userId,
+    displayName,
     timestamp: Date.now()
   });
 };
@@ -554,17 +636,12 @@ $("gif-search").addEventListener("keypress", (e) => {
 
 function loadGifs(q) {
   $("gif-grid").innerHTML = "Loading...";
-  fetch(
-    `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(
-      q
-    )}&key=${TENOR_KEY}&client_key=simple-chat&limit=24`
-  )
-    .then((r) => r.json())
-    .then((json) => {
+  fetch(`https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(q)}&key=${TENOR_KEY}&client_key=simple-chat&limit=24`)
+    .then(r => r.json())
+    .then(json => {
       $("gif-grid").innerHTML = "";
-      (json.results || []).forEach((item) => {
-        const url =
-          item.media_formats?.gif?.url || item.media_formats?.tinygif?.url;
+      (json.results || []).forEach(item => {
+        const url = item.media_formats?.gif?.url || item.media_formats?.tinygif?.url;
         if (!url) return;
         const img = el("img", "gif-thumb");
         img.src = url;
@@ -578,11 +655,12 @@ function loadGifs(q) {
 }
 
 function sendGif(url) {
-  const msgRef = push(ref(db, `channels/${currentChannel}/messages`));
+  const msgRef = push(ref(db, messagesPath()));
   set(msgRef, {
     type: "gif",
     gif: url,
-    username,
+    userId,
+    displayName,
     timestamp: Date.now()
   });
   $("gif-modal").close();
@@ -599,9 +677,7 @@ function autoEmbed(text) {
   p.innerHTML = linked;
   container.appendChild(p);
 
-  const yt = text.match(
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w\-]+)/i
-  );
+  const yt = text.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w\-]+)/i);
   if (yt && yt[1]) {
     const em = el("div", "embed");
     const ifr = el("iframe");
@@ -633,9 +709,8 @@ function fileToDataURL(file) {
     r.readAsDataURL(file);
   });
 }
-
 function downscaleDataURL(dataURL, maxW, maxH, quality = 0.9) {
-  return new Promise((res) => {
+  return new Promise(res => {
     const img = new Image();
     img.onload = () => {
       const scale = Math.min(maxW / img.width, maxH / img.height, 1);
@@ -657,5 +732,6 @@ function startApp() {
   watchRoles();
   startPresence();
   refreshChannelList();
-  switchChannel(currentChannel);
+  watchDmList();
+  switchToChannel(currentRoom.id || "general");
 }
