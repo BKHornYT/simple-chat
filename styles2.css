@@ -62,7 +62,6 @@ body{margin:0;font-family:Segoe UI,Roboto,Arial;background:var(--bg);color:var(-
 .embed{margin-top:4px;border-radius:10px;overflow:hidden;border:1px solid var(--border);background:#fff}
 .embed img{max-width:360px;display:block}
 .embed iframe{width:360px;height:203px;border:0}
-
 /* Composer */
 .composer{padding:10px;border-top:1px solid var(--border);display:flex;gap:8px}
 .composer input{flex:1;padding:9px 11px;border-radius:10px;border:1px solid var(--border);font-size:13px}

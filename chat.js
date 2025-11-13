@@ -16,7 +16,7 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-/* ========= Firebase ========= */
+/* ========= Firebase =========*/
 const firebaseConfig = {
   apiKey: "AIzaSyBi9MKK_bhjIymbvoe1WNjZYHfhzaC_EHQ",
   authDomain: "localwebchat.firebaseapp.com",
