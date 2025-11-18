@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Simple Chat+ – Register</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="styles2.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Simple Chat+</div>
+    <div class="spacer"></div>
+  </header>
+
+  <section class="card center">
+    <h2>Register</h2>
+
+    <label>Username</label>
+    <input id="reg-username" placeholder="BKHorn" />
+
+    <label>Email</label>
+    <input id="reg-email" type="email" placeholder="you@example.com" />
+
+    <label>Password</label>
+    <input id="reg-password" type="password" placeholder="Password" />
+
+    <label>Confirm Password</label>
+    <input id="reg-password2" type="password" placeholder="Repeat password" />
+
+    <button id="register-btn" class="btn" style="margin-top:10px;">Register</button>
+
+    <p style="font-size:13px;color:#666;margin-top:8px;">
+      Already have an account? <a href="login.html">Login</a>
+    </p>
+  </section>
+
+  <script type="module" src="auth.js"></script>
+</body>
+</html>
