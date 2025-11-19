@@ -26,81 +26,73 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
 
-const $ = (id) => document.getElementById(id);
+const $ = id => document.getElementById(id);
 const path = window.location.pathname.toLowerCase();
 
-/* ------------------ LOGIN PAGE ------------------ */
+/* LOGIN PAGE */
 if (path.endsWith("login.html")) {
-
-  $("login-btn").onclick = async () => {
-    const email = $("login-email").value.trim();
-    const pass = $("login-password").value.trim();
-    if (!email || !pass) return alert("Enter both email and password.");
-
-    try {
-      await signInWithEmailAndPassword(auth, email, pass);
-      window.location.href = "chat.html";
-    } catch (err) {
-      console.error(err);
-      alert("Login failed: " + err.message);
-    }
-  };
-
-  onAuthStateChanged(auth, (user) => {
-    if (user) window.location.href = "chat.html";
-  });
+  const btn = $("login-btn");
+  if (btn) {
+    btn.onclick = async () => {
+      const email = $("login-email").value.trim();
+      const pass = $("login-password").value.trim();
+      if (!email || !pass) {
+        alert("Fill all fields.");
+        return;
+      }
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+        window.location.href = "chat.html";
+      } catch (err) {
+        alert("Login failed: " + err.message);
+      }
+    };
+  }
 }
 
-/* ------------------ REGISTER PAGE ------------------ */
+/* REGISTER PAGE */
 if (path.endsWith("register.html")) {
+  const btn = $("register-btn");
+  if (btn) {
+    btn.onclick = async () => {
+      const username = $("reg-username").value.trim();
+      const email = $("reg-email").value.trim();
+      const pass = $("reg-password").value.trim();
+      const pass2 = $("reg-password2").value.trim();
 
-  $("register-btn").onclick = async () => {
-    const username = $("reg-username").value.trim();
-    const email = $("reg-email").value.trim();
-    const pass = $("reg-password").value.trim();
-    const pass2 = $("reg-password2").value.trim();
-
-    if (!username || !email || !pass || !pass2)
-      return alert("Fill all fields.");
-
-    if (pass !== pass2)
-      return alert("Passwords do not match.");
-
-    try {
-      const cred = await createUserWithEmailAndPassword(auth, email, pass);
-      const uid = cred.user.uid;
-
-      await set(ref(db, "profiles/" + uid), {
-        username,
-        color: "#0078ff",
-        avatar: "",
-        email
-      });
-
-      // Give admin role to BKHorn
-      if (username.toLowerCase() === "bkhorn") {
-        await set(ref(db, "roles/" + uid), "admin");
+      if (!username || !email || !pass || !pass2) {
+        alert("Fill all fields.");
+        return;
+      }
+      if (pass !== pass2) {
+        alert("Passwords don't match.");
+        return;
       }
 
-      window.location.href = "chat.html";
+      try {
+        const cred = await createUserWithEmailAndPassword(auth, email, pass);
+        const uid = cred.user.uid;
 
-    } catch (err) {
-      console.error(err);
-      alert("Registration failed: " + err.message);
-    }
-  };
+        await set(ref(db, "profiles/" + uid), {
+          username,
+          color: "#0078ff",
+          avatar: "",
+          email
+        });
 
-  onAuthStateChanged(auth, (user) => {
-    if (user) window.location.href = "chat.html";
-  });
+        if (username.toLowerCase() === "bkhorn") {
+          await set(ref(db, "roles/" + uid), "admin");
+        }
+
+        window.location.href = "chat.html";
+      } catch (err) {
+        alert("Registration failed: " + err.message);
+      }
+    };
+  }
 }
 
-/* ------------------ INDEX PAGE (DO NOTHING) ------------------ */
-if (path.endsWith("index.html") || path.endsWith("/")) {
-  // Homepage is public — NO redirects
-}
-
-/* ------------------ CHAT PAGE (PROTECTED) ------------------ */
+/* CHAT PAGE GUARD */
 if (path.endsWith("chat.html")) {
   onAuthStateChanged(auth, (user) => {
     if (!user) {
