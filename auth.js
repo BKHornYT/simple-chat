@@ -1,14 +1,14 @@
+// auth.js
+// Handles register + login using Realtime Database, SHA-256 password hashing
+// and optional admin unlock with a master password.
+
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {
-  getAuth,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  onAuthStateChanged
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getDatabase,
   ref,
-  set
+  get,
+  set,
+  update
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 const firebaseConfig = {
@@ -23,45 +23,55 @@ const firebaseConfig = {
 };
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-const auth = getAuth(app);
 const db = getDatabase(app);
 
 const $ = id => document.getElementById(id);
 const path = window.location.pathname.toLowerCase();
 
-/* LOGIN PAGE */
-if (path.endsWith("login.html")) {
-  const btn = $("login-btn");
-  if (btn) {
-    btn.onclick = async () => {
-      const email = $("login-email").value.trim();
-      const pass = $("login-password").value.trim();
-      if (!email || !pass) {
-        alert("Fill all fields.");
-        return;
-      }
-      try {
-        await signInWithEmailAndPassword(auth, email, pass);
-        window.location.href = "chat.html";
-      } catch (err) {
-        alert("Login failed: " + err.message);
-      }
-    };
+/* ---------- helpers ---------- */
+
+function sanitizeUsername(name) {
+  return name.trim().toLowerCase().replace(/[^a-z0-9_\-]/g, "").slice(0, 24);
+}
+
+async function hashPassword(password) {
+  try {
+    const enc = new TextEncoder().encode(password);
+    const buf = await crypto.subtle.digest("SHA-256", enc);
+    return Array.from(new Uint8Array(buf))
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join("");
+  } catch {
+    // fallback (should not happen in modern browsers)
+    return password;
   }
 }
 
-/* REGISTER PAGE */
+function saveSession(id, profile) {
+  const data = {
+    id,
+    username: profile.username,
+    color: profile.color || "#0078ff",
+    avatar: profile.avatar || "",
+    role: profile.role || "user",
+    email: profile.email || ""
+  };
+  localStorage.setItem("sc_user", JSON.stringify(data));
+}
+
+/* ---------- register page ---------- */
+
 if (path.endsWith("register.html")) {
   const btn = $("register-btn");
   if (btn) {
     btn.onclick = async () => {
-      const username = $("reg-username").value.trim();
+      const usernameRaw = $("reg-username").value.trim();
       const email = $("reg-email").value.trim();
-      const pass = $("reg-password").value.trim();
-      const pass2 = $("reg-password2").value.trim();
+      const pass = $("reg-password").value;
+      const pass2 = $("reg-password2").value;
 
-      if (!username || !email || !pass || !pass2) {
-        alert("Fill all fields.");
+      if (!usernameRaw || !pass || !pass2) {
+        alert("Fill username and passwords.");
         return;
       }
       if (pass !== pass2) {
@@ -69,34 +79,117 @@ if (path.endsWith("register.html")) {
         return;
       }
 
-      try {
-        const cred = await createUserWithEmailAndPassword(auth, email, pass);
-        const uid = cred.user.uid;
-
-        await set(ref(db, "profiles/" + uid), {
-          username,
-          color: "#0078ff",
-          avatar: "",
-          email
-        });
-
-        if (username.toLowerCase() === "bkhorn") {
-          await set(ref(db, "roles/" + uid), "admin");
-        }
-
-        window.location.href = "chat.html";
-      } catch (err) {
-        alert("Registration failed: " + err.message);
+      const id = sanitizeUsername(usernameRaw);
+      if (!id) {
+        alert("Only a–z, 0–9, - and _ allowed in username.");
+        return;
       }
+
+      const userRef = ref(db, "users/" + id);
+      const existing = await get(userRef);
+      if (existing.exists()) {
+        alert("That username is already taken.");
+        return;
+      }
+
+      const passHash = await hashPassword(pass);
+      const baseProfile = {
+        username: usernameRaw,
+        email: email || "",
+        color: "#0078ff",
+        avatar: "",
+        role: "user",
+        created: Date.now()
+      };
+
+      await set(userRef, {
+        ...baseProfile,
+        passHash
+      });
+
+      await set(ref(db, "profiles/" + id), baseProfile);
+
+      saveSession(id, baseProfile);
+      window.location.href = "chat.html";
     };
   }
 }
 
-/* CHAT PAGE GUARD */
-if (path.endsWith("chat.html")) {
-  onAuthStateChanged(auth, (user) => {
-    if (!user) {
-      window.location.href = "login.html";
-    }
-  });
+/* ---------- login page ---------- */
+
+if (path.endsWith("login.html")) {
+  const btn = $("login-btn");
+  if (btn) {
+    btn.onclick = async () => {
+      const usernameRaw = $("login-username").value.trim();
+      const pass = $("login-password").value;
+
+      if (!usernameRaw || !pass) {
+        alert("Fill both fields.");
+        return;
+      }
+
+      const id = sanitizeUsername(usernameRaw);
+      const userRef = ref(db, "users/" + id);
+      const snap = await get(userRef);
+
+      if (!snap.exists()) {
+        alert("User not found.");
+        return;
+      }
+
+      const user = snap.val();
+      const passHash = await hashPassword(pass);
+
+      if (passHash !== user.passHash) {
+        alert("Wrong password.");
+        return;
+      }
+
+      let profile = {
+        username: user.username,
+        email: user.email || "",
+        color: user.color || "#0078ff",
+        avatar: user.avatar || "",
+        role: user.role || "user",
+        created: user.created || Date.now()
+      };
+
+      // Save normal session first
+      saveSession(id, profile);
+
+      // ---------- admin unlock ----------
+      // If this uid is in adminUsers, allow them to enter master admin password
+      const adminFlagSnap = await get(ref(db, "adminUsers/" + id));
+      if (adminFlagSnap.exists()) {
+        const pw = prompt("Enter admin password (leave blank to continue as normal user):");
+        if (pw) {
+          const hash = await hashPassword(pw);
+          const storedHashSnap = await get(ref(db, "adminConfig/masterPasswordHash"));
+          if (storedHashSnap.exists() && hash === storedHashSnap.val()) {
+            profile.role = "admin";
+            saveSession(id, profile);
+
+            // update stored role (optional but nice)
+            await update(ref(db, "users/" + id), { role: "admin" });
+            await update(ref(db, "profiles/" + id), { role: "admin" });
+
+            alert("Admin mode unlocked.");
+          } else {
+            alert("Wrong admin password. Logged in as normal user.");
+          }
+        }
+      }
+
+      window.location.href = "chat.html";
+    };
+  }
+}
+
+// Optional: auto-redirect logged-in users
+if (path.endsWith("login.html") || path.endsWith("register.html")) {
+  const existing = localStorage.getItem("sc_user");
+  if (existing) {
+    // window.location.href = "chat.html";
+  }
 }

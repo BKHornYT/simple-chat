@@ -1,9 +1,8 @@
+// chat.js
+// Realtime chat using Firebase Realtime Database + custom username system
+// Includes channels, presence, GIFs, images and admin panel hooks.
+
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {
-  getAuth,
-  onAuthStateChanged,
-  signOut
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getDatabase,
   ref,
@@ -29,7 +28,6 @@ const firebaseConfig = {
 };
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-const auth = getAuth(app);
 const db = getDatabase(app);
 
 const $ = id => document.getElementById(id);
@@ -38,6 +36,7 @@ let uid = "";
 let displayName = "";
 let avatar = "";
 let userColor = "#0078ff";
+let role = "user";
 let isAdmin = false;
 let isMod = false;
 
@@ -47,34 +46,45 @@ let typingTimer = null;
 
 const TENOR_KEY = "LIVDSRZULELA";
 
-/* Helpers */
+/* ------------- helpers ------------- */
+
 const b64e = s => btoa(unescape(encodeURIComponent(s)));
 const b64d = s => {
   try { return decodeURIComponent(escape(atob(s))); }
   catch { return s; }
 };
-const el = (t,c)=>{const e=document.createElement(t);if(c)e.className=c;return e;};
-function initial(n){return (n||"?").trim().charAt(0).toUpperCase();}
-function colorFromName(name){
-  const palette=["#f43f5e","#ef4444","#f97316","#f59e0b","#10b981","#06b6d4","#3b82f6","#8b5cf6","#a855f7","#ec4899"];
-  let sum=0;(name||"").toUpperCase().split("").forEach(ch=>sum+=ch.charCodeAt(0));
+
+const el = (t, c) => {
+  const e = document.createElement(t);
+  if (c) e.className = c;
+  return e;
+};
+
+function initial(n) {
+  return (n || "?").trim().charAt(0).toUpperCase();
+}
+
+function colorFromName(name) {
+  const palette = ["#f43f5e","#ef4444","#f97316","#f59e0b","#10b981","#06b6d4","#3b82f6","#8b5cf6","#a855f7","#ec4899"];
+  let sum = 0;
+  (name || "").toUpperCase().split("").forEach(ch => sum += ch.charCodeAt(0));
   return palette[sum % palette.length];
 }
-function sanitizeChannelName(name){
-  return name.trim().toLowerCase().replace(/[^a-z0-9\-_]/g,"").slice(0,25);
+
+function sanitizeChannelName(name) {
+  return name.trim().toLowerCase().replace(/[^a-z0-9\-_]/g, "").slice(0, 25);
 }
 
-/* Presence room key */
-function roomKey() {
-  return "channel:" + currentChannel;
-}
+const roomKey = () => "channel:" + currentChannel;
 
-/* Load profiles cache */
+/* ------------- profiles cache ------------- */
+
 onValue(ref(db, "profiles"), snap => {
   profilesCache = snap.val() || {};
 });
 
-/* Ensure general exists */
+/* ------------- ensure #general exists ------------- */
+
 async function ensureGeneralExists() {
   const metaRef = ref(db, "channelsMeta/general");
   const snap = await get(metaRef);
@@ -91,18 +101,8 @@ async function ensureGeneralExists() {
   }
 }
 
-/* Roles */
-function watchRoles() {
-  if (!uid) return;
-  onValue(ref(db, "roles/" + uid), snap => {
-    const role = snap.val();
-    isAdmin = role === "admin";
-    isMod = role === "mod" || role === "moderator";
-    refreshChannelControls();
-  });
-}
+/* ------------- presence ------------- */
 
-/* Presence */
 function startPresence() {
   const userRef = ref(db, "presence/" + uid);
   const connectedRef = ref(db, ".info/connected");
@@ -117,6 +117,7 @@ function startPresence() {
   onValue(ref(db, "presence"), snap => {
     const all = snap.val() || {};
     const ul = $("users-list");
+    if (!ul) return;
     ul.innerHTML = "";
 
     Object.entries(all).forEach(([id, info]) => {
@@ -126,31 +127,38 @@ function startPresence() {
       const prof = profilesCache[id];
       if (!prof) return;
 
-      const li = el("li","user-item");
+      const li = el("li", "user-item");
 
       if (prof.avatar) {
-        const img = el("img","avatar");
+        const img = el("img", "avatar");
         img.src = prof.avatar;
         li.appendChild(img);
       } else {
-        const av = el("div","avatar");
+        const av = el("div", "avatar");
         av.textContent = initial(prof.username);
         av.style.background = prof.color || colorFromName(prof.username);
         li.appendChild(av);
       }
 
-      const nm = el("div","name");
+      const nm = el("div", "name");
       nm.textContent = prof.username;
       li.appendChild(nm);
+
+      if (profilesCache[id]?.role === "admin") {
+        const badge = el("span", "badge-admin");
+        badge.textContent = "admin";
+        li.appendChild(badge);
+      }
 
       ul.appendChild(li);
     });
   });
 }
 
-/* Channels */
-$("add-channel-btn").onclick = addChannel;
-$("delete-channel-btn").onclick = deleteChannel;
+/* ------------- channels ------------- */
+
+if ($("add-channel-btn")) $("add-channel-btn").onclick = addChannel;
+if ($("delete-channel-btn")) $("delete-channel-btn").onclick = deleteChannel;
 
 async function addChannel() {
   const metaSnap = await get(ref(db, "channelsMeta"));
@@ -192,20 +200,24 @@ function deleteChannel() {
     alert("Only admin can delete #general.");
     return;
   }
-  const metaRef = ref(db,"channelsMeta/" + currentChannel);
-  get(metaRef).then(snap=>{
+
+  const metaRef = ref(db, "channelsMeta/" + currentChannel);
+  get(metaRef).then(snap => {
     const meta = snap.val();
     if (!meta) return;
+
     const owner = meta.creator === uid;
-    if (!owner && !isAdmin && !isMod) {
+    const allowed = owner || isAdmin || isMod;
+    if (!allowed) {
       alert("You don't have permission to delete this channel.");
       return;
     }
     if (!confirm("Delete #" + currentChannel + "?")) return;
+
     Promise.all([
-      remove(ref(db,"channels/" + currentChannel)),
+      remove(ref(db, "channels/" + currentChannel)),
       remove(metaRef)
-    ]).then(()=>{
+    ]).then(() => {
       refreshChannelList();
       switchToChannel("general");
     });
@@ -213,50 +225,55 @@ function deleteChannel() {
 }
 
 function refreshChannelList() {
-  onValue(ref(db,"channelsMeta"), snap => {
+  const list = $("channels-list");
+  if (!list) return;
+
+  onValue(ref(db, "channelsMeta"), snap => {
     const meta = snap.val() || {};
-    const list = $("channels-list");
     list.innerHTML = "";
-    Object.keys(meta).sort().forEach(name=>{
+
+    Object.keys(meta).sort().forEach(name => {
       const info = meta[name];
+
       if (info.private && !info.members?.[uid] && !isAdmin && !isMod) return;
 
-      const li = el("li","item");
+      const li = el("li", "item");
       if (name === currentChannel) li.classList.add("active");
-      li.onclick = ()=>switchToChannel(name);
+      li.onclick = () => switchToChannel(name);
 
-      const hash = el("div","hash");
+      const hash = el("div", "hash");
       hash.textContent = "#";
-      const nm = el("div","name");
+      const nm = el("div", "name");
       nm.textContent = name;
 
-      li.append(hash,nm);
+      li.append(hash, nm);
       list.appendChild(li);
     });
+
     refreshChannelControls();
+    refreshAdminChannelList(meta); // for admin panel
   });
 }
 
 function switchToChannel(name) {
   currentChannel = name;
-  $("room-pill-name").textContent = name;
-  $("room-name-label").textContent = "#" + name;
+  if ($("room-pill-name")) $("room-pill-name").textContent = name;
+  if ($("room-name-label")) $("room-name-label").textContent = "#" + name;
 
-  update(ref(db,"presence/" + uid),{
+  update(ref(db, "presence/" + uid), {
     room: roomKey(),
     at: serverTimestamp()
-  }).catch(()=>{});
+  }).catch(() => {});
 
   attachMessages();
   loadTheme();
   refreshChannelControls();
 }
 
-/* Theme */
-$("theme-close")?.addEventListener("click",()=> $("theme-modal").close());
-if ($("upload-bg-btn")) {
-  $("upload-bg-btn").onclick = ()=> $("theme-image").click();
-}
+/* ------------- theme ------------- */
+
+if ($("theme-close")) $("theme-close").onclick = () => $("theme-modal").close();
+if ($("upload-bg-btn")) $("upload-bg-btn").onclick = () => $("theme-image").click();
 if ($("theme-image")) {
   $("theme-image").onchange = async e => {
     const f = e.target.files?.[0];
@@ -266,49 +283,32 @@ if ($("theme-image")) {
   };
 }
 if ($("theme-save")) {
-  $("theme-save").onclick = ()=>{
+  $("theme-save").onclick = () => {
     const color = $("theme-color").value || "#fafafa";
     const img = $("upload-bg-btn").dataset.bg || "";
-    update(ref(db,"channelsMeta/" + currentChannel + "/theme"),{
+    update(ref(db, "channelsMeta/" + currentChannel + "/theme"), {
       bgColor: color,
       bgImage: img
-    }).then(()=>{
+    }).then(() => {
       loadTheme();
       $("theme-modal").close();
     });
   };
 }
 
-if ($("theme-btn")) {
-  $("theme-btn").onclick = ()=>{
-    const metaRef = ref(db,"channelsMeta/" + currentChannel);
-    get(metaRef).then(snap=>{
-      const meta = snap.val();
-      if (!meta) return;
-      const owner = meta.creator === uid;
-      if (!owner && !isAdmin && !isMod) {
-        alert("Only owner/admin can edit theme.");
-        return;
-      }
-      const theme = meta.theme || {};
-      $("theme-color").value = theme.bgColor || "#fafafa";
-      $("upload-bg-btn").dataset.bg = theme.bgImage || "";
-      $("theme-modal").showModal();
-    });
-  };
-}
-
 function loadTheme() {
-  get(ref(db,"channelsMeta/" + currentChannel + "/theme")).then(snap=>{
+  const messagesDiv = $("messages");
+  if (!messagesDiv) return;
+
+  get(ref(db, "channelsMeta/" + currentChannel + "/theme")).then(snap => {
     const t = snap.val() || {};
-    const m = $("messages");
-    m.style.backgroundColor = t.bgColor || "#fafafa";
+    messagesDiv.style.backgroundColor = t.bgColor || "#fafafa";
     if (t.bgImage) {
-      m.style.backgroundImage = `url(${t.bgImage})`;
-      m.style.backgroundSize = "cover";
-      m.style.backgroundPosition = "center";
+      messagesDiv.style.backgroundImage = `url(${t.bgImage})`;
+      messagesDiv.style.backgroundSize = "cover";
+      messagesDiv.style.backgroundPosition = "center";
     } else {
-      m.style.backgroundImage = "none";
+      messagesDiv.style.backgroundImage = "none";
     }
   });
 }
@@ -317,7 +317,7 @@ function refreshChannelControls() {
   const delBtn = $("delete-channel-btn");
   if (!delBtn) return;
 
-  get(ref(db,"channelsMeta/" + currentChannel)).then(snap=>{
+  get(ref(db, "channelsMeta/" + currentChannel)).then(snap => {
     const meta = snap.val() || {};
     const owner = meta.creator === uid;
     const allowed = owner || isAdmin || isMod;
@@ -325,14 +325,15 @@ function refreshChannelControls() {
   });
 }
 
-/* Messages */
-function messagesPath() {
-  return "channels/" + currentChannel + "/messages";
-}
+/* ------------- messages ------------- */
+
+const messagesPath = () => "channels/" + currentChannel + "/messages";
 
 function attachMessages() {
-  onValue(ref(db,messagesPath()),snap=>{
-    const messagesDiv = $("messages");
+  const messagesDiv = $("messages");
+  if (!messagesDiv) return;
+
+  onValue(ref(db, messagesPath()), snap => {
     messagesDiv.innerHTML = "";
     const val = snap.val() || {};
     Object.values(val).forEach(m => renderMessage(m));
@@ -342,24 +343,26 @@ function attachMessages() {
 
 function renderMessage(m) {
   const messagesDiv = $("messages");
-  const wrap = el("div","message");
+  if (!messagesDiv) return;
+
+  const wrap = el("div", "message");
   if (m.userId === uid) wrap.classList.add("self");
 
   const prof = profilesCache[m.userId] || {};
   const dn = prof.username || m.displayName || "user";
 
   if (prof.avatar) {
-    const img = el("img","avatar");
+    const img = el("img", "avatar");
     img.src = prof.avatar;
     wrap.appendChild(img);
   } else {
-    const av = el("div","avatar");
+    const av = el("div", "avatar");
     av.textContent = initial(dn);
     av.style.background = prof.color || colorFromName(dn);
     wrap.appendChild(av);
   }
 
-  const box = el("div","msg-content");
+  const box = el("div", "msg-content");
   if (m.userId === uid) {
     box.style.backgroundColor = userColor;
     box.style.color = "#fff";
@@ -368,19 +371,19 @@ function renderMessage(m) {
     box.style.color = "#fff";
   }
 
-  const head = el("div","msg-header");
+  const head = el("div", "msg-header");
   const t = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : "";
   head.innerHTML = `${dn} <span class="timestamp">${t}</span>`;
   box.appendChild(head);
 
   if (m.type === "image") {
-    const em = el("div","embed");
+    const em = el("div", "embed");
     const im = el("img");
     im.src = m.url;
     em.appendChild(im);
     box.appendChild(em);
   } else if (m.type === "gif") {
-    const em = el("div","embed");
+    const em = el("div", "embed");
     const im = el("img");
     im.src = m.gif;
     em.appendChild(im);
@@ -394,19 +397,23 @@ function renderMessage(m) {
   messagesDiv.appendChild(wrap);
 }
 
-/* Sending */
-$("send-btn").onclick = sendMessage;
-$("user-input").addEventListener("keydown", e=>{
-  if (e.key === "Enter") sendMessage();
-  setTyping(true);
-});
+/* ------------- sending ------------- */
+
+if ($("send-btn")) $("send-btn").onclick = sendMessage;
+if ($("user-input")) {
+  $("user-input").addEventListener("keydown", e => {
+    if (e.key === "Enter") sendMessage();
+    setTyping(true);
+  });
+}
 
 function sendMessage() {
   const inp = $("user-input");
+  if (!inp) return;
   const txt = inp.value.trim();
   if (!txt) return;
-  const msgRef = push(ref(db,messagesPath()));
-  set(msgRef,{
+  const msgRef = push(ref(db, messagesPath()));
+  set(msgRef, {
     type: "text",
     text: b64e(txt),
     userId: uid,
@@ -416,82 +423,95 @@ function sendMessage() {
   inp.value = "";
 }
 
-/* Typing indicator */
+/* ------------- typing indicator ------------- */
+
 function setTyping(state) {
   if (!uid) return;
   const tRef = ref(db, "typing/" + currentChannel + "/" + uid);
-  set(tRef, state).catch(()=>{});
+  set(tRef, state).catch(() => {});
   clearTimeout(typingTimer);
   if (state) {
-    typingTimer = setTimeout(()=>{
-      set(tRef,false).catch(()=>{});
+    typingTimer = setTimeout(() => {
+      set(tRef, false).catch(() => {});
     }, 1200);
   }
 }
-onValue(ref(db,"typing/" + currentChannel),snap=>{
+
+onValue(ref(db, "typing/" + currentChannel), snap => {
+  const indicator = $("typing-indicator");
+  if (!indicator) return;
   const map = snap.val() || {};
   const others = Object.keys(map).filter(k => k !== uid && map[k]);
-  $("typing-indicator").style.display = others.length ? "block" : "none";
+  indicator.style.display = others.length ? "block" : "none";
 });
 
-/* Images & GIFs */
-$("img-btn").onclick = ()=> $("image-upload").click();
-$("image-upload").onchange = async e=>{
-  const f = e.target.files?.[0];
-  if (!f) return;
-  const data = await fileToDataURL(f);
-  const msgRef = push(ref(db,messagesPath()));
-  set(msgRef,{
-    type:"image",
-    url:data,
-    userId:uid,
-    displayName,
-    timestamp:Date.now()
+/* ------------- images & gifs ------------- */
+
+if ($("img-btn")) $("img-btn").onclick = () => $("image-upload").click();
+if ($("image-upload")) {
+  $("image-upload").onchange = async e => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const data = await fileToDataURL(f);
+    const msgRef = push(ref(db, messagesPath()));
+    set(msgRef, {
+      type: "image",
+      url: data,
+      userId: uid,
+      displayName,
+      timestamp: Date.now()
+    });
+  };
+}
+
+if ($("gif-btn")) $("gif-btn").onclick = () => $("gif-modal").showModal();
+if ($("gif-close")) $("gif-close").onclick = () => $("gif-modal").close();
+
+if ($("gif-search-btn")) {
+  $("gif-search-btn").onclick = () => loadGifs($("gif-search").value || "funny");
+}
+if ($("gif-search")) {
+  $("gif-search").addEventListener("keydown", e => {
+    if (e.key === "Enter") loadGifs($("gif-search").value || "funny");
   });
-};
-
-$("gif-btn").onclick = ()=> $("gif-modal").showModal();
-$("gif-close").onclick = ()=> $("gif-modal").close();
-
-$("gif-search-btn").onclick = ()=> loadGifs($("gif-search").value || "funny");
-$("gif-search").addEventListener("keydown", e=>{
-  if (e.key === "Enter") loadGifs($("gif-search").value || "funny");
-});
+}
 
 function loadGifs(q) {
-  $("gif-grid").innerHTML = "Loading...";
+  const grid = $("gif-grid");
+  if (!grid) return;
+  grid.innerHTML = "Loading...";
   fetch(`https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(q)}&key=${TENOR_KEY}&client_key=simple-chat&limit=24`)
-    .then(r=>r.json())
-    .then(json=>{
-      const grid = $("gif-grid");
+    .then(r => r.json())
+    .then(json => {
       grid.innerHTML = "";
-      (json.results || []).forEach(item=>{
+      (json.results || []).forEach(item => {
         const url = item.media_formats?.gif?.url || item.media_formats?.tinygif?.url;
         if (!url) return;
-        const img = el("img","gif-thumb");
+        const img = el("img", "gif-thumb");
         img.src = url;
-        img.onclick = ()=> sendGif(url);
+        img.onclick = () => sendGif(url);
         grid.appendChild(img);
       });
     })
-    .catch(()=>{
-      $("gif-grid").innerHTML = "Failed to load GIFs.";
+    .catch(() => {
+      grid.innerHTML = "Failed to load GIFs.";
     });
 }
 
 function sendGif(url) {
-  const msgRef = push(ref(db,messagesPath()));
-  set(msgRef,{
-    type:"gif",
-    gif:url,
-    userId:uid,
+  const msgRef = push(ref(db, messagesPath()));
+  set(msgRef, {
+    type: "gif",
+    gif: url,
+    userId: uid,
     displayName,
     timestamp: Date.now()
   });
-  $("gif-modal").close();
+  if ($("gif-modal")) $("gif-modal").close();
 }
 
-/* Embeds */
+/* ------------- auto-embeds ------------- */
+
 function autoEmbed(text) {
   const container = el("div");
   const linked = text.replace(/(https?:\/\/[^\s]+)/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
@@ -499,9 +519,9 @@ function autoEmbed(text) {
   p.innerHTML = linked;
   container.appendChild(p);
 
-  const yt = text.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w\-]+)/i);
+  const yt = text.match(/(?:youtube\.com\/watch\\?v=|youtu\.be\/)([\\w\\-]+)/i);
   if (yt && yt[1]) {
-    const em = el("div","embed");
+    const em = el("div", "embed");
     const ifr = el("iframe");
     ifr.src = `https://www.youtube.com/embed/${yt[1]}`;
     em.appendChild(ifr);
@@ -509,8 +529,9 @@ function autoEmbed(text) {
   }
 
   if (/\.(png|jpg|jpeg|gif|webp)(\?.*)?$/i.test(text)) {
-    const em = el("div","embed");
-    const im = el("img"); im.src = text;
+    const em = el("div", "embed");
+    const im = el("img");
+    im.src = text;
     em.appendChild(im);
     container.appendChild(em);
   }
@@ -518,84 +539,136 @@ function autoEmbed(text) {
   return container;
 }
 
-/* Utilities for files */
+/* ------------- file util ------------- */
+
 function fileToDataURL(file) {
-  return new Promise((resolve,reject)=>{
+  return new Promise((resolve, reject) => {
     const r = new FileReader();
-    r.onload = ()=> resolve(r.result);
+    r.onload = () => resolve(r.result);
     r.onerror = reject;
     r.readAsDataURL(file);
   });
 }
 
-/* Profile modal */
+/* ------------- profile modal ------------- */
+
 if ($("edit-profile-btn")) {
-  $("edit-profile-btn").onclick = ()=>{
-    $("profile-username").value = displayName;
-    $("profile-username").disabled = true;
-    $("profile-color").value = userColor;
-    $("profile-preview").src = avatar || "";
-    $("profile-modal").showModal();
+  $("edit-profile-btn").onclick = () => {
+    if ($("profile-username")) {
+      $("profile-username").value = displayName;
+      $("profile-username").disabled = true;
+    }
+    if ($("profile-color")) $("profile-color").value = userColor;
+    if ($("profile-preview")) $("profile-preview").src = avatar || "";
+    if ($("profile-modal")) $("profile-modal").showModal();
   };
 }
-if ($("profile-cancel")) {
-  $("profile-cancel").onclick = ()=> $("profile-modal").close();
-}
+if ($("profile-cancel")) $("profile-cancel").onclick = () => $("profile-modal").close();
 if ($("profile-file")) {
-  $("profile-file").onchange = async e=>{
+  $("profile-file").onchange = async e => {
     const f = e.target.files?.[0];
     if (!f) return;
     const data = await fileToDataURL(f);
     avatar = data;
-    $("profile-preview").src = data;
+    if ($("profile-preview")) $("profile-preview").src = data;
   };
 }
 if ($("profile-form")) {
-  $("profile-form").onsubmit = async ev=>{
+  $("profile-form").onsubmit = async ev => {
     ev.preventDefault();
     userColor = $("profile-color").value || userColor;
-    await update(ref(db,"profiles/" + uid),{
-      color:userColor,
+    await update(ref(db, "profiles/" + uid), {
+      color: userColor,
+      avatar
+    });
+    await update(ref(db, "users/" + uid), {
+      color: userColor,
       avatar
     });
     $("profile-modal").close();
   };
 }
 
-/* Logout */
+/* ------------- logout ------------- */
+
 if ($("logout-btn")) {
-  $("logout-btn").onclick = ()=> {
-    signOut(auth).then(()=> window.location.href="login.html");
+  $("logout-btn").onclick = () => {
+    localStorage.removeItem("sc_user");
+    window.location.href = "login.html";
   };
 }
 
-/* Auth bootstrap */
-onAuthStateChanged(auth, async (user)=>{
-  if (!user) {
+/* ------------- admin panel hooks ------------- */
+
+function setupAdminUI() {
+  const badge = $("role-badge");
+  if (badge) badge.textContent = isAdmin ? "Admin" : "User";
+
+  const adminBtn = $("admin-btn");
+  if (adminBtn) {
+    adminBtn.style.display = isAdmin ? "inline-flex" : "none";
+    adminBtn.onclick = () => {
+      if (!isAdmin) return;
+      if ($("admin-modal")) $("admin-modal").showModal();
+    };
+  }
+
+  if ($("admin-close")) {
+    $("admin-close").onclick = () => $("admin-modal").close();
+  }
+
+  if ($("admin-delete-channel-btn")) {
+    $("admin-delete-channel-btn").onclick = () => {
+      if (!isAdmin) return;
+      const name = prompt("Delete which channel? (name, without #)");
+      if (!name) return;
+      if (!confirm("Really delete #" + name + " ?")) return;
+      Promise.all([
+        remove(ref(db, "channels/" + name)),
+        remove(ref(db, "channelsMeta/" + name))
+      ]).catch(() => {});
+    };
+  }
+}
+
+// Fill admin channel list in modal if present
+function refreshAdminChannelList(meta) {
+  const list = $("admin-channels");
+  if (!list) return;
+  list.innerHTML = "";
+  Object.keys(meta).sort().forEach(name => {
+    const li = el("li");
+    li.textContent = "#" + name;
+    list.appendChild(li);
+  });
+}
+
+/* ------------- init ------------- */
+
+async function init() {
+  const saved = localStorage.getItem("sc_user");
+  if (!saved) {
     window.location.href = "login.html";
     return;
   }
-  uid = user.uid;
-  const profSnap = await get(ref(db,"profiles/" + uid));
-  if (profSnap.exists()) {
-    const p = profSnap.val();
-    displayName = p.username || (user.email ? user.email.split("@")[0] : "User");
-    userColor = p.color || userColor;
-    avatar = p.avatar || "";
-  } else {
-    displayName = user.email ? user.email.split("@")[0] : "User";
-    await set(ref(db,"profiles/" + uid),{
-      username:displayName,
-      color:userColor,
-      avatar:"",
-      email:user.email || ""
-    });
-  }
+  const user = JSON.parse(saved);
+  uid = user.id;
+  displayName = user.username;
+  userColor = user.color || "#0078ff";
+  avatar = user.avatar || "";
+  role = user.role || "user";
+  isAdmin = role === "admin";
+  isMod = role === "mod" || role === "moderator";
 
   await ensureGeneralExists();
-  $("app").style.display = "grid";
+  if ($("app")) $("app").style.display = "grid";
+
+  if ($("current-username")) $("current-username").textContent = displayName;
+
   startPresence();
-  watchRoles();
   refreshChannelList();
   switchToChannel("general");
-});
+  setupAdminUI();
+}
+
+init();
