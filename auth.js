@@ -182,11 +182,11 @@ if (path.endsWith("login.html")) {
       }
 
       window.location.href = "chat.html";
-    };
+    }; 
   }
 }
 
-// Optional: auto-redirect logged-in users
+// Optional: auto-redirect logged-in users.
 if (path.endsWith("login.html") || path.endsWith("register.html")) {
   const existing = localStorage.getItem("sc_user");
   if (existing) {
